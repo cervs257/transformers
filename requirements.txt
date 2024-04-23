@@ -12,8 +12,12 @@ pylint==2.15.3
 
 #sentiment and ml
 torchtext
+transformers
 datasets
 nltk
 torch
 tqdm
-#collections
+
+#data
+pandas
+numpy
