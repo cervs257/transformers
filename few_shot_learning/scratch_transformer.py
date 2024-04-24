@@ -297,7 +297,7 @@ class Transformer(nn.Module):
         self.tgt_embed = tgt_embed
         self.src_pos = src_pos
         self.tgt_pos = tgt_pos
-        self.proj = projection_layer
+        self.projection_layer = projection_layer
 
     # why not build a forward function as we've done before? During inferencing we can reuse the output of the encoder and visualizing attention
 
