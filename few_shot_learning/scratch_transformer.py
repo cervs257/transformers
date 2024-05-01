@@ -89,11 +89,12 @@ class FeedForwardBlock(nn.Module):
         
 class MultiHeadAttentionBlock(nn.Module):
 
-    def __init__(self, d_model: int, heads: int, dropout: float) -> None:
+    def __init__(self, d_model: int, heads: int, dropout: float, softmax_att = True) -> None:
         """
         :param d_model: The dimension of the model
         :param heads: The number of heads
         :param dropout: The dropout rate
+        :param softmax_att: Whether to use softmax attention
         """
         super().__init__()
         self.d_model = d_model
@@ -112,9 +113,10 @@ class MultiHeadAttentionBlock(nn.Module):
         self.w_o = nn.Linear(d_model, d_model) # Wo
 
         self.dropout = nn.Dropout(dropout)
+        self.softmax_att = softmax_att
 
     @staticmethod # this is a static method, so it doesn't need to be called on an instance of the class
-    def attention(query, key, value, dropout: nn.Dropout, mask=None):
+    def attention(query, key, value, softmax_att, dropout: nn.Dropout, mask=None):
         d_k = query.shape[-1] # get the last dimension of the query
 
         # (Batch, heads, seq_len, d_k) x (Batch, heads, d_k, seq_len) -> (Batch, heads, seq_len, seq_len):
@@ -123,7 +125,10 @@ class MultiHeadAttentionBlock(nn.Module):
             attention_scores = attention_scores.masked_fill_(mask == 0, -1e9) # fill the scores with a very small number where the mask is 0
 
         # softmax attention ####### what if i don't want to use softmax?
-        attention_scores = torch.nn.functional.softmax(attention_scores, dim=-1) # apply softmax to the last dimension (Batch, heads, seq_len, seq_len)
+        if softmax_att:
+            attention_scores = torch.nn.functional.softmax(attention_scores, dim=-1) # apply softmax to the last dimension (Batch, heads, seq_len, seq_len)
+        else:
+            pass
         if dropout is not None:
             attention_scores = dropout(attention_scores)
 
@@ -142,7 +147,13 @@ class MultiHeadAttentionBlock(nn.Module):
         key = key.view(key.shape[0], key.shape[1], self.heads, self.d_k).transpose(1, 2)
         value = value.view(value.shape[0], value.shape[1], self.heads, self.d_k).transpose(1, 2)
 
-        x, self.attention_scores = MultiHeadAttentionBlock.attention(query, key, value, self.dropout, mask=mask)
+        x, self.attention_scores = MultiHeadAttentionBlock.attention(
+            query = query,
+            key = key, 
+            value = value, 
+            softmax_att=self.softmax_att, 
+            dropout = self.dropout, 
+            mask=mask)
 
         # (Batch, heads, seq_len, d_k) -> (Batch, seq_len, heads, d_k) -> (Batch, seq_len, d_model)
         x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.heads * self.d_k)
