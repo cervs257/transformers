@@ -61,6 +61,70 @@ def get_reg_data(
     return np.array(seqs), np.array(targets), np.array(ws)
 
 
+def create_nonlinear_data(rng, c_size, i_size = 10):
+    """
+    Create a contextual data set: Cm = (xm,1, ym,1, ..., xm,N, ym,N), 
+    where ym,i = fwm(xm,i) = wTm xm,i, and each wm ~ N(0d, Id).
+    Each xm,i = alpha*v + beta*u + epsilon, where alpha ~ N(0, 1), beta ~ N(0, 1), 
+    and epsilon = (epsilon_1, ..., epsilon_10)T , with epsilon_j ~ N(0, 1/100).
+    """
+    # Create vectors v, u
+    v = np.array([np.cos(j * np.pi / 5) for j in range(1, i_size+1)])
+    u = np.array([np.sin(j * np.pi / 5) for j in range(1, i_size+1)])
+
+    # Create wm ~ N(0d, Id)
+    wm = rng.normal(size=[i_size])
+
+    # Create x, y, w
+    xm = []
+    ym = []
+    for _ in range(c_size):
+        
+
+        # Create alpha ~ N(0, 1), beta ~ N(0, 1)
+        alpha = rng.normal()
+        beta = rng.normal()
+        
+        # Create epsilon ~ N(0, 1/100)
+        epsilon = rng.normal(size=[i_size], scale = 1/10)
+
+        # Compute x_m,i = alpha*v + beta*u + epsilon
+        xm_i = alpha*v + beta*u + epsilon
+
+        # Compute y_m,i = w^T x_m,i
+        ym_i = np.matmul(wm, xm_i)
+
+        xm.append(xm_i)
+        ym.append(ym_i)
+
+    # Convert to numpy arrays
+    xm = np.array(xm)
+    ym = np.array(ym)
+
+    # Concatenate x_m,i and y_m,i
+    Cm = np.concatenate([xm, ym[..., None]], axis = -1)
+
+    return Cm, wm
+
+
+def get_nonlinear_data(no_tasks, feature_size, no_examples):
+    """
+    Create a nonlinear regression data set: Cm = (xm,1, ym,1, ..., xm,N, ym,N), 
+    where ym,i = fwm(xm,i) = wTm xm,i, and each wm ~ N(0d, Id).
+    Each xm,i = alpha*v + beta*u + epsilon, where alpha ~ N(0, 1), beta ~ N(0, 1), 
+    and epsilon = (epsilon_1, ..., epsilon_10)T , with epsilon_j ~ N(0, 1/100).
+    """
+    rng = np.random.default_rng()
+    Cms, ws = [], []
+    for _ in range(no_tasks):
+        Cm, w = create_nonlinear_data(rng, no_examples, feature_size)
+        Cms.append(Cm)
+        ws.append(w)
+
+    return np.array(Cms), np.array(ws)
+
+
+
 ######################################################################
 ## weights for linear self attention
 ######################################################################
@@ -76,9 +140,10 @@ def create_weights(
     lin_diag=False,
     gd_deq=False,
     num_layers=1,
+    gd_plusplus = False,
 ):
     """
-    Create linear regression gradient descent weights for self-attention
+    Create linear regression gradient descent (or gd++) weights for linear self-attention
     layer.
     param feature_size: int, size of the input
     param output_size: int, size of the output
@@ -89,6 +154,7 @@ def create_weights(
     param lin_diag: bool, if True, the diagonal of the value matrix is linear
     param gd_deq: bool, if True, the weights are for the gradient descent
     param num_layers: int, number of layers in the transformer
+    param gd_plusplus: bool, if True, gd++ weights are created
     """
     if w_init is None:
         w_init = np.random.normal(size=[1, 1, feature_size]) * 0
@@ -99,7 +165,12 @@ def create_weights(
     one_out_size = np.ones([output_size])
 
     # Value matrix
-    value_upper = np.zeros([feature_size, feature_size + output_size])
+    if gd_plusplus:
+        value_upper_left = np.eye(feature_size)
+        value_upper_right = np.zeros([feature_size, output_size])
+        value_upper = np.concatenate([value_upper_left, value_upper_right], axis=1)
+    else:
+        value_upper = np.zeros([feature_size, feature_size + output_size])
     value_lower_left = w_init[0]
     if lin_diag:
         value_lower_right = np.diag(one_out_size) * -2
@@ -123,7 +194,14 @@ def create_weights(
     key_matrix = query_matrix
 
     # Projection matrix
-    projection_upper_part = np.zeros([feature_size, feature_size + output_size])
+    if gd_plusplus:
+        
+        # projection_upper_left =  np.eye(feature_size) * (- gamma)
+        # projection_upper_right = np.zeros([feature_size, output_size])
+        # projection_upper_part = np.concatenate([projection_upper_left, projection_upper_right], axis=1)
+        pass # how do i add gamma here?
+    else:
+        projection_upper_part = np.zeros([feature_size, feature_size + output_size])
     projection_lower_left = np.zeros([output_size, feature_size])
 
     projection_lower_right = np.diag(one_out_size) * ((1 / c_size) * lr)
