@@ -232,3 +232,9 @@ def create_weights(
 
     return params_new
 
+
+######################################################################
+## stock data
+######################################################################
+
+from openbb_terminal.sdk import openbb
