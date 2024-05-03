@@ -2,6 +2,7 @@ from functools import partial
 import jax
 from jax import vmap
 import jax.numpy as jnp
+import pandas as pd
 
 
 ######################################################################
@@ -237,4 +238,74 @@ def create_weights(
 ## stock data
 ######################################################################
 
-from openbb_terminal.sdk import openbb
+def get_stock_data(path, ticker):
+    stocks = pd.read_csv(path)
+    spy = stocks.loc[
+    stocks["Ticker"] == ticker, ["DATE", "LAST", "OPEN", "LOW", "HIGH", "3M IMPLIED VOL"]
+    ].dropna()
+    spy.reset_index(drop=True, inplace=True)
+
+    # Select all columns except 'DATE'
+    cols = [col for col in spy.columns if col not in ["DATE", "3M IMPLIED VOL"]]
+
+    # Apply the function to each element of the selected columns
+    spy[cols] = spy[cols].apply(lambda x: np.log(x / 200))
+
+    # Normalize the '3M IMPLIED VOL' column
+    spy["3M IMPLIED VOL"] = spy["3M IMPLIED VOL"] / spy["3M IMPLIED VOL"].std()
+
+    # create y
+    spy["price_1d"] = spy["LAST"].shift(-1)
+    spy["price_5d"] = spy["LAST"].shift(-5)
+    spy["price_10d"] = spy["LAST"].shift(-10)
+    spy["price_20d"] = spy["LAST"].shift(-20)
+    spy["open_1d"] = spy["OPEN"].shift(-1)
+
+    # divide the data into periods of 251 days
+    n = 251
+    spy["period"] = spy.index // n
+
+    # for each period, separate the last 20 rows to avoid lookahead bias and use as eval data
+    spy_val = spy.groupby("period").tail(20)
+    spy = (
+        spy.groupby("period")
+        .apply(
+            lambda x: x.iloc[:-20], include_groups=True
+        )  # include groups to later create test query
+        .reset_index(drop=True)
+    )
+    spy_val = spy_val.dropna()
+
+    # Now let's fill the last entry of each period with 0.0
+    columns = ["price_1d", "price_5d", "price_10d", "price_20d", "open_1d"]
+    last_entry = spy.groupby("period").apply(
+        lambda x: x.last_valid_index(), include_groups=False
+    )
+    # spy_targets = np.array(spy.loc[last_entry, :].drop(columns=["DATE", "period"]))
+    spy_targets = np.array(spy.loc[last_entry, columns])
+    spy.loc[last_entry, columns] = 0.0
+
+    # Let's fill y data for spy_val with 0.0
+    last_entry = spy_val.groupby("period").apply(
+        lambda x: x.last_valid_index(), include_groups=False
+    )
+    spy_val_targets = np.array(spy_val.loc[last_entry, columns])
+    spy_val.loc[last_entry, columns] = 0.0
+
+    # We're going to treat each period as a context
+    spy = spy.drop(columns=["DATE"])
+    spy_val = spy_val.drop(columns=["DATE"])
+    groups = [group.drop(columns=["period"]).values for _, group in spy.groupby("period")]
+    groups_val = [
+        group.drop(columns=["period"]).values for _, group in spy_val.groupby("period")
+    ]
+    spy_np = np.array(groups)
+    spy_val_np = np.array(groups_val)
+
+    # Define stock eval data
+    spy_eval = (spy_val_np, spy_val_targets)
+    # Define stock train data
+    spy_train = (spy_np, spy_targets)
+    # eval_targets = torch.tensor(spy_eval[1]).float()
+
+    return spy_train, spy_eval
